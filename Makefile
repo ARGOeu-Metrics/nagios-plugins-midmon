@@ -1,4 +1,4 @@
-PKGNAME=nagios-plugins-igtf
+PKGNAME=nagios-plugins-midmon
 SPECFILE=${PKGNAME}.spec
 FILES=Makefile ${SPECFILE} src
 
