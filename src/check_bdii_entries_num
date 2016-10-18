@@ -1,0 +1,335 @@
+#!/usr/bin/perl
+
+# prologue
+use strict;
+use warnings;
+
+use Nagios::Plugin;
+use Net::LDAP;
+use Time::HiRes qw(gettimeofday);
+use Date::Parse;
+use version;
+
+sub checkCreation($$$) {
+	my ($entr, $currTime, $p) = @_;
+
+	return 1 unless ($p->opts->creation);
+	my $creationTime = $entr->get_value('GLUE2EntityCreationTime');
+	print "DN: ", $entr->dn, " = " if ($p->opts->verbose);
+	if ($creationTime) {
+		print "GLUE2EntityCreationTime: $creationTime \n" if ($p->opts->verbose);
+		my $creationTimestamp = str2time($creationTime) || return 0;
+		return 1 if ( ( $currTime - $creationTimestamp ) <= $p->opts->creation );
+	}
+}
+
+sub checkMWVersion($$$) {
+	my ($entr, $mwVersion, $p) = @_;
+
+	return 1 unless ($mwVersion);
+	foreach my $subEntr ($entr->get_value('GLUE2EntityOtherInfo')) {
+		if ($subEntr =~ /MiddlewareVersion=((\d+)\.(\d+)\.(\d+)\-(\d+))/) {
+			my $foundVersion;
+			my $foundVersionTmp = $1;
+			print "MiddlewareVersion: $foundVersionTmp\n" if ($p->opts->verbose);
+			$foundVersionTmp =~ s/\-/./;
+			$foundVersion = version->parse($foundVersionTmp);
+			return 1 if ( $foundVersion >= $mwVersion );
+		}
+	}
+}
+
+sub checkdCache($$$) {
+	my ($entr, $dCache, $p) = @_;
+
+	return 1 unless ($dCache);
+        my $foundVersionTmp = $entr->get_value('GLUE2ManagerProductVersion');
+        if ($foundVersionTmp) {
+                my $foundVersion;
+                print "GLUE2ManagerProductVersion: $foundVersionTmp \n" if ($p->opts->verbose);
+                $foundVersionTmp =~ s/\-\D\S+$//;
+                $foundVersionTmp =~ s/\-/./;
+                $foundVersionTmp =~ s/~\S+$//;
+		eval {
+			$foundVersion = version->parse("v$foundVersionTmp");
+                };
+                if ($@) {
+                        print "Incorrect version found: $foundVersionTmp \n" if ($p->opts->verbose);
+                        return 1;
+                }
+
+		if ($foundVersionTmp =~ /^2.2/) {
+			return 1 if ( $foundVersion < '2.2.16' );			
+		} elsif ($foundVersion > '2.6.0') {
+			return;
+                } else {
+			return 1;
+		}
+        }
+}
+
+sub checkImplVersion($$$) {
+        my ($entr, $implVersion, $p) = @_;
+
+        return 1 unless ($implVersion);
+        my $foundVersionTmp = $entr->get_value('GLUE2EndpointImplementationVersion');
+        if ($foundVersionTmp) {
+		my $foundVersion;
+		print "GLUE2EndpointImplementationVersion: $foundVersionTmp \n" if ($p->opts->verbose);
+                $foundVersionTmp =~ s/\-/./;
+		eval {
+			$foundVersion = version->parse("v$foundVersionTmp");
+		};
+		if ($@) {
+			return 0;
+		} else {
+			return 1 if ( $foundVersion >= $implVersion );
+		}
+        }
+}
+
+
+use vars qw($VERSION $PROGNAME);
+$VERSION = '1.0';
+
+# get the base name of this script for use in the examples
+use File::Basename;
+$PROGNAME = basename($0);
+
+##############################################################################
+# Instantiate Nagios::Plugin object (the 'usage' parameter is mandatory)
+my $p = Nagios::Plugin->new(
+    usage => "Usage: $PROGNAME [ -v|--verbose ] [-t <timeout>]\n"
+           . "[ -c|--critical=<critical threshold> ]\n"
+           . "[ -w|--warning=<warning threshold> ]\n"
+           . "[ -H|--host =<host url to jmx4perl> ]\n"
+           . "[ -p|--port =<host port> ]\n"
+           . "[ -b|--base =<LDAP base> ]\n"
+           . "[ -f|--filter =<LDAP filter> ]"
+           . "[ -F|--childfilter =<LDAP child filter> ]"
+           . "[ -j|--joinfield = join field ]",
+    version => $VERSION,
+    blurb => "This plugin is a Nagios plugin written in Perl using the\n"
+           . "Nagios::Plugin modules.  It will look for bdii entries.", 
+	extra => q{}
+);
+
+# Define and document the valid command line options
+# usage, help, version, timeout and verbose are defined by default.
+$p->add_arg(
+	spec => 'warning|w=s',
+	help => 
+qq{-w, --warning=INTEGER:INTEGER
+   Minimum and maximum number of allowable result, outside of which a
+   warning will be generated.  If omitted, no warning is generated.},
+	required => 0,
+    # default => ":1",
+);
+
+$p->add_arg(
+	spec => 'critical|c=s',
+	help => 
+qq{-c, --critical=INTEGER:INTEGER
+   Minimum and maximum number of the generated result, outside of
+   which a critical will be generated. },
+   required => 0,
+);
+
+$p->add_arg(
+	spec => 'host|H=s',
+	help => 
+qq{-H, --host=STRING
+   Specify the url to jmx4perl.},
+    required => 1,
+);
+
+$p->add_arg(
+	spec => 'port|p=s',
+	help => 
+qq{-p, --port=STRING
+   Specify the host port.},
+    required => 1,
+    default => "2170",
+);
+
+$p->add_arg(
+	spec => 'base|b=s',
+	help => 
+qq{-b, --base=STRING
+   LDAP base.},
+    default => "o=grid",
+);
+
+$p->add_arg(
+	spec => 'filter|f=s',
+	help => 
+qq{-f, --filter=STRING
+   LDAP filter.},
+    default => "(GlueServiceType=Nagios)",
+);
+
+$p->add_arg(
+	spec => 'childfilter|F=s',
+	help => 
+qq{-F, --childfilter=STRING
+   LDAP child filter.},
+   default => q{},
+);
+
+$p->add_arg(
+	spec => 'joinfield|j=s',
+	help => 
+qq{-j, --joinfield=STRING
+   LDAP join field.},
+   default => q{},
+);
+
+$p->add_arg(
+        spec => 'creation=s',
+        help =>
+qq{--creation=INTEGER
+   Checks time set in attribute GLUE2EntityCreationTime.
+   Argument is age in seconds.
+   Entries with attribute value older than argument and
+   entries without the attribute will be skipped.},
+   default => q{},
+);
+
+$p->add_arg(
+        spec => 'mwversion=s',
+        help =>
+qq{--mwversion=X.Y.Z-W
+   Checks the attribute GLUE2EntityOtherInfo for MiddlewareVersion.
+   Entries with attribute value less than argument and
+   entries without the attribute will be skipped.},
+   default => q{},
+);
+
+$p->add_arg(
+        spec => 'implversion=s',
+        help =>
+qq{--implversion=X.Y.Z
+   Checks the attribute GLUE2EndpointImplementationVersion.
+   Entries with attribute value less than argument and
+   entries without the attribute will be skipped.},
+   default => q{},
+);
+
+$p->add_arg(
+        spec => 'dcache',
+        help =>
+qq{--dcache
+   Argument used specifically for dCache SHA-2 test.},
+   default => q{},
+);
+
+
+# Parse arguments and process standard ones (e.g. usage, help, version)
+$p->getopts;
+
+alarm $p->opts->timeout;
+
+my $t0 = gettimeofday;
+
+my $searchAttrs = ['dn', $p->opts->joinfield];
+push @$searchAttrs, 'GLUE2EntityCreationTime' if ($p->opts->creation);
+
+my $mwVersion;
+if ($p->opts->mwversion) {
+	if ( $p->opts->mwversion =~ /(\d+)\.(\d+)\.(\d+)\-(\d+)/ ) {
+		my $mwVersionTmp = $p->opts->mwversion;
+		$mwVersionTmp =~ s/\-/./;
+		$mwVersion = version->parse($mwVersionTmp);
+		push @$searchAttrs, 'GLUE2EntityOtherInfo';
+	} else {
+		$p->nagios_exit( return_code => UNKNOWN, message => "Incorrect mwversion format: " . $p->opts->mwversion);
+	}
+}
+
+my $implVersion;
+if ($p->opts->implversion) {
+        if ( $p->opts->implversion =~ /(\d+)\.(\d+)\.(\d+)/ ) {
+                my $mwVersionTmp = $p->opts->implversion;
+		$implVersion = version->parse($mwVersionTmp);
+                push @$searchAttrs, 'GLUE2EndpointImplementationVersion';
+        } else {
+                $p->nagios_exit( return_code => UNKNOWN, message => "Incorrect implversion format: " . $p->opts->implversion);
+        }
+}
+
+my $dCache = $p->opts->dcache;
+if ($p->opts->dcache) {
+	push @$searchAttrs, 'GLUE2ManagerProductVersion';
+}
+
+my $entries_num = 0;
+my $ldap = Net::LDAP->new ( $p->opts->host, port => $p->opts->port ) or
+                $p->nagios_exit( return_code => UNKNOWN, message => "$@" );
+my $mesg = $ldap->bind (  );
+my $result = $ldap->search ( base => $p->opts->base,
+                            scope => "sub",
+                            filter => $p->opts->filter,
+                            attrs =>  $searchAttrs,
+                           )
+                or $p->nagios_exit( return_code => UNKNOWN, message => "$@" );
+my @entries = $result->entries;
+if ($p->opts->childfilter eq q{}) {
+	# check entries if mwversion of creation are defined
+	if ($p->opts->creation || $mwVersion || $implVersion || $dCache) {
+		my $currTime = time();
+		for my $entr ( @entries ) {
+			$entries_num++ if ( 
+					(checkCreation($entr, $currTime, $p)) && 
+					(checkMWVersion($entr, $mwVersion, $p)) && 
+					(checkImplVersion($entr, $implVersion, $p)) &&
+                                        (checkdCache($entr, $dCache, $p)) );
+		}
+	} else {
+		$entries_num = scalar(@entries);
+	}
+}
+
+foreach my $entr ( @entries ) {
+ 	if ($p->opts->verbose){
+        print "DN: ", $entr->dn, "\n";
+        #foreach my $attr ( sort $entr->attributes ) {
+        #    # skip binary we can't handle
+        #    next if ( $attr =~ /;binary$/ );
+        #    print "  $attr : ", $entr->get_value ( $attr ) ,"\n";
+        #}
+		#print "#------------------------\n";
+	}
+	if ($p->opts->childfilter ne q{}) {
+		my $join_value = $entr->get_value ($p->opts->joinfield);
+		my $childfilter = $p->opts->childfilter;
+		$childfilter =~ s/<JOIN>/$join_value/g;
+		my $child_result = $ldap->search ( base => $p->opts->base,
+	                         scope => "sub",
+	                         filter => $childfilter,
+	                         attrs =>  ['dn']
+	                       )
+	                or $p->nagios_exit( return_code => UNKNOWN, message => "$@" );
+		my @child_entries = $child_result->entries;
+		if ($p->opts->verbose){
+			foreach my $entr ( @child_entries ) {
+	        	print "DN: ", $entr->dn, "\n";
+	 		}
+		}
+		$entries_num += scalar(@child_entries);
+	}
+}
+$ldap->unbind;
+
+my $t1 = gettimeofday;
+
+$p->add_perfdata( 
+     label => "time",
+     value => $t1 - $t0,
+     uom => "s",
+     threshold => $p->threshold(),
+   );
+$p->nagios_exit( 
+	 return_code => $p->check_threshold( $entries_num ),
+	 message => $entries_num
+	            . " entr" . ($entries_num==1 ? "y" : "ies") . " found",
+);
