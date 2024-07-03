@@ -4,7 +4,7 @@
 use strict;
 use warnings;
 
-use Nagios::Plugin;
+use Monitoring::Plugin;
 use Net::LDAP;
 use Time::HiRes qw(gettimeofday);
 use Date::Parse;
@@ -97,8 +97,8 @@ use File::Basename;
 $PROGNAME = basename($0);
 
 ##############################################################################
-# Instantiate Nagios::Plugin object (the 'usage' parameter is mandatory)
-my $p = Nagios::Plugin->new(
+# Instantiate Monitoring::Plugin object (the 'usage' parameter is mandatory)
+my $p = Monitoring::Plugin->new(
     usage => "Usage: $PROGNAME [ -v|--verbose ] [-t <timeout>]\n"
            . "[ -c|--critical=<critical threshold> ]\n"
            . "[ -w|--warning=<warning threshold> ]\n"
@@ -110,7 +110,7 @@ my $p = Nagios::Plugin->new(
            . "[ -j|--joinfield = join field ]",
     version => $VERSION,
     blurb => "This plugin is a Nagios plugin written in Perl using the\n"
-           . "Nagios::Plugin modules.  It will look for bdii entries.", 
+           . "Monitoring::Plugin modules.  It will look for bdii entries.", 
 	extra => q{}
 );
 
