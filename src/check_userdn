@@ -21,11 +21,11 @@
 # 22-Mar-2013 - Created;
 
 use strict;
-use Nagios::Plugin;
+use Monitoring::Plugin;
 use LWP::UserAgent;
 use Date::Parse;
 
-# Standard variables used in Nagios::Plugin constructor
+# Standard variables used in Monitoring::Plugin constructor
 use constant PROGNAME => 'check_userdn';
 use constant VERSION => '1.0';
 use constant DESCRIPTION => 'Probe for EGI user DN publishing.';
@@ -41,8 +41,8 @@ use constant USAGE => "usage: check_userdn --site <file> \n";
 
 use constant USERDN_URL => 'http://accounting.egi.eu/userdn_publication.php';
 
-# Create Nagios::Plugin instance
-my $plugin = Nagios::Plugin->new (usage => USAGE,
+# Create Monitoring::Plugin instance
+my $plugin = Monitoring::Plugin->new (usage => USAGE,
                                   shortname => SHORTNAME,
                                   version => VERSION,
                                   blurb => DESCRIPTION,
