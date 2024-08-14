@@ -2,7 +2,7 @@
 
 Summary: Nagios plugins for EGI midmon tests
 Name: nagios-plugins-midmon
-Version: 1.0.0
+Version: 2.0.0
 Release: 1%{?dist}
 License: ASL 2.0
 Group: Network/Monitoring
@@ -32,5 +32,7 @@ rm -rf $RPM_BUILD_ROOT
 %{dir}
 
 %changelog
+* Wed Aug 14 2024 Katarina Zailac <kzailac@srce.hr> - 2.0.0-1%{?dist}
+- ARGO-4602 Build nagios-plugins-midmon package for Rocky 9
 * Tue Oct 18 2016 Emir Imamagic <eimamagi@srce.hr> - 1.0.0-1%{?dist}
 - Initial version of Nagios plugins for EGI midmon tests
